@@ -40,12 +40,34 @@ def anytostr(v: Any) -> str:
     return str(v)
 
 
-class Boolean:
-    pass
+class BaseType:
+    def __init__(self, name):
+        self._name = name
+
+    @property
+    def name(self):
+        return self._name
+
+    @name.setter
+    def name(self, n):
+        self._name = n
+
+    def __str__(self):
+        print(self._name)
+        return self.__repr__()
+
+    def __repr__(self):
+        return self._name
 
 
-class Integer:
-    def __init__(self, width):
+class Boolean(BaseType):
+    def __init__(self, name):
+        BaseType.__init__(self, name)
+
+
+class Integer(BaseType):
+    def __init__(self, name, width):
+        BaseType.__init__(self, name)
         self._width = width
 
     @property
@@ -54,11 +76,13 @@ class Integer:
 
 
 class Signed(Integer):
-    pass
+    def __init__(self, name, width):
+        Integer.__init__(self, name, width)
 
 
 class Unsigned(Integer):
-    pass
+    def __init__(self, name, width):
+        Integer.__init__(self, name, width)
 
 
 class Types:
@@ -66,42 +90,33 @@ class Types:
         self._name = ""
         self._type = None
 
-    def _classify_type(self, t):
-        match = typere.match(t).groups()
+    def _classify_type(self, n, t):
+        match = typere.match(t)
 
         if match is None:
             raise InvalidTypeException
 
-        if match[0] == 'b':
-            return Boolean
-        elif match[0] == 'i':
+        groups = match.groups()
+
+        if groups[0] == 'b':
+            return Boolean(n)
+        elif groups[0] == 'i':
             try:
-                return Signed(int(match[1]))
+                return Signed(n, int(groups[1]))
             except:
                 raise InvalidTypeException
-        elif match[0] == 'u':
+        elif groups[0] == 'u':
             try:
-                return Unsigned(int(match[1]))
+                return Unsigned(n, int(groups[1]))
             except:
                 raise InvalidTypeException
         else:
             raise InvalidTypeException
 
     def __getattr__(self, t):
-        self._type = self._classify_type(t)
-
-        def _setname(name):
-            self._name = name
-            return self
-
-        return _setname
-
-    @property
-    def typeOf(self):
-        return self._type
-
-    def __repr__(self):
-        return self._name
+        def _get_type(name):
+            return self._classify_type(name, t)
+        return _get_type
 
 
 class Special:
@@ -148,7 +163,7 @@ class Bus(Generic[BT]):
         self._trace = None
         self._parent = None
         for ch in channels:
-            print("Adding channel:", str(ch))
+            print("Adding channel:", type(ch), str(ch))
             chan = Channel(str(ch))
             self.chs[str(ch)] = chan
 
@@ -250,7 +265,6 @@ class External(Function):
 
 class Network:
     def __init__(self, name: str, *args, **kwargs):
-        print("initing network")
         self.name = name
         self.funs = []  # type: List[Function]
         self.busses = []  # type: List[Bus]
