@@ -1,12 +1,15 @@
 import argparse
 import time
+import re
 from collections import OrderedDict
 
-from typing import TypeVar, Any, Generic, List, Union, cast, KeysView
+from typing import TypeVar, Any, Generic, List, KeysView
 
 T = TypeVar('T')
 BT = TypeVar('BT', int, str)
 CT = TypeVar("CT")
+
+typere = re.compile(r'^(b|(?:i|u)(?=\d+))((?<=(?:i|u))\d+)?$')
 
 
 class GeneralSMEException(Exception):
@@ -29,26 +32,83 @@ class BusMapMismatch(GeneralSMEException):
     pass
 
 
+class InvalidTypeException(GeneralSMEException):
+    pass
+
+
 def anytostr(v: Any) -> str:
     return str(v)
 
 
+class Boolean:
+    pass
+
+
+class Integer:
+    def __init__(self, width):
+        self._width = width
+
+    @property
+    def width(self):
+        return self._width
+
+
+class Signed(Integer):
+    pass
+
+
+class Unsigned(Integer):
+    pass
+
+
 class Types:
-    @staticmethod
-    def i(length):
-        return int
+    def __init__(self):
+        self._name = ""
+        self._type = None
 
-    @staticmethod
-    def u(length):
-        return int
+    def _classify_type(self, t):
+        match = typere.match(t).groups()
 
-    @staticmethod
-    def f(length):
-        return float
+        if match is None:
+            raise InvalidTypeException
 
-    @staticmethod
-    def b():
-        return bool
+        if match[0] == 'b':
+            return Boolean
+        elif match[0] == 'i':
+            try:
+                return Signed(int(match[1]))
+            except:
+                raise InvalidTypeException
+        elif match[0] == 'u':
+            try:
+                return Unsigned(int(match[1]))
+            except:
+                raise InvalidTypeException
+        else:
+            raise InvalidTypeException
+
+    def __getattr__(self, t):
+        self._type = self._classify_type(t)
+
+        def _setname(name):
+            self._name = name
+            return self
+
+        return _setname
+
+    @property
+    def typeOf(self):
+        return self._type
+
+    def __repr__(self):
+        return self._name
+
+
+class Special:
+    # High-impedance value
+    Z = None
+    # Unknown/don't care value
+    X = None
 
 
 class Channel(Generic[CT]):
@@ -88,8 +148,9 @@ class Bus(Generic[BT]):
         self._trace = None
         self._parent = None
         for ch in channels:
-            chan = Channel(ch)
-            self.chs[ch] = chan
+            print("Adding channel:", str(ch))
+            chan = Channel(str(ch))
+            self.chs[str(ch)] = chan
 
     def __getitem__(self, n: str) -> BT:
         ret = self.chs[n].value
@@ -137,8 +198,7 @@ class Bus(Generic[BT]):
                 try:
                     self._trace[self._trace_name(ch.name)].append(ch.value)
                 except IllegalReadException:
-                    self._trace[self._trace_name(ch.name)].append(0)
-            #print("Propagate!", ch.name)
+                    self._trace[self._trace_name(ch.name)].append(None)
 
 
 class Function:
@@ -237,10 +297,8 @@ class Network:
 
     def clock(self, cycles: int) -> None:
         while cycles > 0:
-            #print("------------ CYCLE -----------")
             for bus in self.busses:
                 bus.clock(tracing=self.tracing)
-            # print(self.funs)
             for fun in self.funs:
                 fun.clock()
 
@@ -251,19 +309,18 @@ class Network:
             # to this point.
             # Bus format: NetworkName_BusName_PortName
 
-            #first = False
             # Reorder traces so that they can be read by the testbench in a
             # predictable order
-            otrace = OrderedDict(sorted(self.trace.items(), key=lambda t: t[0]))
+            otrace = OrderedDict(sorted(self.trace.items(),
+                                        key=lambda t: t[0]))
             with open(self.trace_file, 'w') as f:
                 f.write(",".join(otrace.keys()) + "\n")
                 # FIXME: Why does removing the first row from the trace work?
                 for vals in zip(*otrace.values()):
-                    #if first:
-                        f.write(",".join(map(str, vals)) + "\n")
-                    #else:
-                    #    first = True
-
+                    # TODO: Check that values are within the bounds of their
+                    # specified width.
+                    f.write(",".join(map(lambda x: "U" if x is None else
+                                         str(int(x)), vals)) + "\n")
 
 
 class SME:
@@ -308,16 +365,3 @@ class SME:
     @property
     def remaining_options(self):
         return self.unparsed_opts
-
-class Special:
-    # High-impedance value
-    Z = None
-    # Unknown/don't care value
-    X = None
-
-class IntType(int):
-    pass
-
-class FloatType(float):
-    pass
-#class Types: 
