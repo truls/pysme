@@ -3,14 +3,6 @@ import time
 import re
 from collections import OrderedDict
 
-from typing import TypeVar, Any, Generic, List, KeysView
-
-T = TypeVar('T')
-BT = TypeVar('BT', int, str)
-CT = TypeVar("CT")
-
-typere = re.compile(r'^(b|(?:i|u)(?=\d+))((?<=(?:i|u))\d+)?$')
-
 
 class GeneralSMEException(Exception):
     pass
@@ -34,10 +26,6 @@ class BusMapMismatch(GeneralSMEException):
 
 class InvalidTypeException(GeneralSMEException):
     pass
-
-
-def anytostr(v: Any) -> str:
-    return str(v)
 
 
 class BaseType:
@@ -85,12 +73,14 @@ class Unsigned(Integer):
 
 
 class Types:
+    typere = re.compile(r'^(b|(?:i|u)(?=\d+))((?<=(?:i|u))\d+)?$')
+
     def __init__(self):
         self._name = ""
         self._type = None
 
     def _classify_type(self, n, t):
-        match = typere.match(t)
+        match = Types.typere.match(t)
 
         if match is None:
             raise InvalidTypeException
@@ -125,38 +115,38 @@ class Special:
     X = None
 
 
-class Channel(Generic[CT]):
-    def __init__(self, name: str) -> None:
+class Channel():
+    def __init__(self, name):
         self._name = name
         self.read = None
         self.write = None
 
     @property
-    def name(self) -> str:
+    def name(self):
         return self._name
 
     @property
-    def value(self) -> CT:
+    def value(self):
         if self.read is None:
             raise IllegalReadException("Bus had value " +
-                                       anytostr(self.read))
+                                       self.read)
         return self.read
 
     @value.setter
-    def value(self, v: CT) -> CT:
+    def value(self, v):
         if self.write is None:
             self.write = v
         else:
             raise IllegalWriteException("Bus had value " +
-                                        anytostr(self.write))
+                                        self.write)
 
-    def propagate(self) -> None:
+    def propagate(self):
         self.read = self.write
         self.write = None
 
 
-class Bus(Generic[BT]):
-    def __init__(self, name: str, channels: List["str"], dtype: Any) -> None:
+class Bus():
+    def __init__(self, name, channels):
         self.name = name
         self.chs = {}
         self._trace = None
@@ -165,11 +155,11 @@ class Bus(Generic[BT]):
             chan = Channel(str(ch))
             self.chs[str(ch)] = chan
 
-    def __getitem__(self, n: str) -> BT:
+    def __getitem__(self, n):
         ret = self.chs[n].value
         return ret
 
-    def __setitem__(self, n: str, v: BT) -> None:
+    def __setitem__(self, n, v):
         self.chs[n].value = v
 
     @property
@@ -180,13 +170,13 @@ class Bus(Generic[BT]):
     def parent(self, p):
         self._parent = p
 
-    def read(self, n: str) -> BT:
+    def read(self, n):
         return self.chs[n].value
 
-    def write(self, n: str, v: BT) -> None:
+    def write(self, n, v):
         self.chs[n].value = v
 
-    def channames(self) -> KeysView[str]:
+    def channames(self):
         return self.chs.keys()
 
     @property
@@ -261,11 +251,11 @@ class External(Function):
 
 
 class Network:
-    def __init__(self, name: str, *args, **kwargs):
+    def __init__(self, name, *args, **kwargs):
         self.name = name
-        self.funs = []  # type: List[Function]
-        self.busses = []  # type: List[Bus]
-        self.externals = []  # type: List[External]
+        self.funs = []
+        self.busses = []
+        self.externals = []
 
         self.tracing = False
         self.trace = {}
@@ -326,7 +316,6 @@ class Network:
                                         key=lambda t: t[0]))
             with open(self.trace_file, 'w') as f:
                 f.write(",".join(otrace.keys()) + "\n")
-                # FIXME: Why does removing the first row from the trace work?
                 for vals in zip(*otrace.values()):
                     # TODO: Check that values are within the bounds of their
                     # specified width.
