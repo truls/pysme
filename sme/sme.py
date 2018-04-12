@@ -1,34 +1,23 @@
+"""
+The PySME implementation.
+
+Licensed under the LGPL-3 license.
+
+"""
+
 import argparse
 import time
 import re
+from abc import ABC, abstractmethod
 from collections import OrderedDict
 
-
-class GeneralSMEException(Exception):
-    pass
-
-
-class IllegalReadException(GeneralSMEException):
-    pass
+from ._bus import _BaseBus, _Channel
+from ._libsme_support import _LibSme
+from ._exceptions import InvalidTypeException, SMEException,\
+    UnimplementedMethodException, BusMapMismatch, IllegalReadException
 
 
-class IllegalWriteException(GeneralSMEException):
-    pass
-
-
-class UnimplementedMethodException(GeneralSMEException):
-    pass
-
-
-class BusMapMismatch(GeneralSMEException):
-    pass
-
-
-class InvalidTypeException(GeneralSMEException):
-    pass
-
-
-class BaseType:
+class _BaseType(ABC):
     def __init__(self, name):
         self._name = name
 
@@ -43,18 +32,20 @@ class BaseType:
     def __str__(self):
         return self.__repr__()
 
+    @abstractmethod
     def __repr__(self):
-        return self._name
+        pass
 
 
-class Boolean(BaseType):
+class _Boolean(_BaseType):
+
     def __init__(self, name):
-        BaseType.__init__(self, name)
+        _BaseType.__init__(self, name)
 
 
-class Integer(BaseType):
+class _Integer(_BaseType):
     def __init__(self, name, width):
-        BaseType.__init__(self, name)
+        _BaseType.__init__(self, name)
         self._width = width
 
     @property
@@ -62,17 +53,19 @@ class Integer(BaseType):
         return self._width
 
 
-class Signed(Integer):
+class _Signed(_Integer):
     def __init__(self, name, width):
-        Integer.__init__(self, name, width)
+        _Integer.__init__(self, name, width)
 
 
-class Unsigned(Integer):
+class _Unsigned(_Integer):
     def __init__(self, name, width):
-        Integer.__init__(self, name, width)
+        _Integer.__init__(self, name, width)
 
 
 class Types:
+    """Class for expressing special SME types."""
+
     typere = re.compile(r'^(b|(?:i|u)(?=\d+))((?<=(?:i|u))\d+)?$')
 
     def __init__(self):
@@ -88,103 +81,54 @@ class Types:
         groups = match.groups()
 
         if groups[0] == 'b':
-            return Boolean(n)
+            return _Boolean(n)
         elif groups[0] == 'i':
             try:
-                return Signed(n, int(groups[1]))
-            except:
+                return _Signed(n, int(groups[1]))
+            except Exception:
                 raise InvalidTypeException
         elif groups[0] == 'u':
             try:
-                return Unsigned(n, int(groups[1]))
-            except:
+                return _Unsigned(n, int(groups[1]))
+            except Exception:
                 raise InvalidTypeException
         else:
             raise InvalidTypeException
 
     def __getattr__(self, t):
+        """Retrieve the type representation of the attribute."""
         def _get_type(name):
             return self._classify_type(name, t)
         return _get_type
 
 
 class Special:
+    """Special hardware-related values."""
+
     # High-impedance value
     Z = None
     # Unknown/don't care value
     X = None
 
 
-class Channel():
-    def __init__(self, name):
-        self._name = name
-        self.read = None
-        self.write = None
+class Bus(_BaseBus):
+    """An internal SME bus."""
 
-    @property
-    def name(self):
-        return self._name
-
-    @property
-    def value(self):
-        if self.read is None:
-            raise IllegalReadException("Bus had value " +
-                                       self.read)
-        return self.read
-
-    @value.setter
-    def value(self, v):
-        if self.write is None:
-            self.write = v
-        else:
-            raise IllegalWriteException("Bus had value " +
-                                        self.write)
-
-    def propagate(self):
-        self.read = self.write
-        self.write = None
-
-
-class Bus():
     def __init__(self, name, channels):
         self.name = name
         self.chs = {}
         self._trace = None
-        self._parent = None
+        self._parent_name = None
         for ch in channels:
-            chan = Channel(str(ch))
+            chan = _Channel(str(ch))
             self.chs[str(ch)] = chan
 
-    def __getitem__(self, n):
-        ret = self.chs[n].value
-        return ret
-
-    def __setitem__(self, n, v):
-        self.chs[n].value = v
-
     @property
-    def parent(self):
-        return self._parent
-
-    @parent.setter
-    def parent(self, p):
-        self._parent = p
-
-    def read(self, n):
-        return self.chs[n].value
-
-    def write(self, n, v):
-        self.chs[n].value = v
-
-    def channames(self):
-        return self.chs.keys()
-
-    @property
-    def trace(self):
+    def _trace(self):
         return self._trace
 
     def _trace_name(self, chn):
-        return "%s_%s_%s" % (self.parent.name, self.name, chn)
+        return "%s_%s_%s" % (self._parent_name, self.name, chn)
 
     def _setup_trace(self, trace):
         for ch in self.chs.keys():
@@ -193,7 +137,7 @@ class Bus():
                 trace[tname] = []
         self._trace = trace
 
-    def clock(self, tracing=False):
+    def _clock(self, tracing=False):
         for ch in self.chs.values():
             ch.propagate()
             if tracing:
@@ -203,11 +147,31 @@ class Bus():
                     self._trace[self._trace_name(ch.name)].append(None)
 
 
-class Function:
+class ExternalBus(_BaseBus):
+    """Initializes a class declared externally."""
+
+    def __init__(self, name):
+        self.name = name
+        self.chs = {}
+        self._trace = None
+
+    def _init_ext_bus(self, lib_handle):
+        self.chs = lib_handle.get_bus(self.name)
+
+    def _trace(self):
+        raise SMEException("Traces not supported for external buses")
+
+    def _clock(self):
+        raise SMEException("External buses are propagated by calling"
+                           " the sme_propagate() method of libsme")
+
+
+class Process(ABC):
+    """Abstract base class for SME processes."""
+
     def __init__(self, name, ins,
                  outs, *args, **kwargs):
         self._name = name
-        self._parent = None
         self.setup(ins, outs, *args, **kwargs)
 
     def map_ins(self, busses, *args):
@@ -222,40 +186,62 @@ class Function:
         for n, b in zip(args, busses):
             self.__dict__[n] = b
 
-    @property
-    def parent(self):
-        return self._parent
-
-    @parent.setter
-    def parent(self, p):
-        self._parent = p
-
     def setup(self, buses, *args, **kwargs) -> None:
         raise UnimplementedMethodException(
             "All subclasses of " + self.__class__.__name__ +
             " must implement the setup method")
 
-    def clock(self, i: int=1) -> None:
+    def _clock(self, i: int=1) -> None:
         while i > 0:
             self.run()
             i -= 1
 
-    def run(self) -> None:
-        raise UnimplementedMethodException(
-            "All subclasses of " + self.__class__.__name__ +
-            " must implement a run method")
+    @abstractmethod
+    def run(self):
+        pass
 
 
-class External(Function):
+class SimulationProcess(Process):
+    """
+    A process is purely used simulation.
+
+    Functionally identical to Process
+    """
+
     pass
 
 
-class Network:
+def extends(file_name, options=""):
+    """Extend a network with definitions from an SMEIL program."""
+    def f(original_class):
+        # From: https://stackoverflow.com/a/682242/9175124
+        orig_init = original_class.__init__
+        # make copy of original __init__, so we can call it without recursion
+
+        def __init__(self, id, *args, **kws):
+            self.__id = id
+            self.puppeteer = True
+            self.lib_handle = _LibSme(file_name, options)
+
+            orig_init(self, *args, **kws)
+
+        original_class.__init__ = __init__
+        return original_class
+    return f
+
+
+class Network(ABC):
+    """Class for declaring a network."""
+
     def __init__(self, name, *args, **kwargs):
         self.name = name
+        #print("Name was ", name)
         self.funs = []
         self.busses = []
         self.externals = []
+
+        if not hasattr(self, "puppeteer"):
+            self.puppeteer = False
 
         self.tracing = False
         self.trace = {}
@@ -264,30 +250,45 @@ class Network:
         self.graph = False
         self.graph_file = "graph-" + time.ctime().replace(" ", "-") + ".dot"
 
+        #print("__init__:", args, kwargs)
         self.deferred_init = lambda: self.wire(*args, **kwargs)
 
-    def init(self):
+    def _init(self):
         self.deferred_init()
 
-    def tell(self, obj):
+    def add(self, obj):
+        """Add a Bus or Process to the network.
+
+        This functions should be called from within the wire method of a
+        network to tell the network about declared entities.
+        """
         if isinstance(obj, Bus):
-            obj.parent = self
+            obj._parent_name = self.name
             if self.tracing:
                 obj._setup_trace(self.trace)
             self.busses.append(obj)
-        elif isinstance(obj, Function):
-            obj.parent = self
+        elif isinstance(obj, ExternalBus):
+            if not self.puppeteer:
+                raise SMEException("External buses may only be defined"
+                                   " when we are extending an"
+                                   " SMEIL-defined network. Use the"
+                                   " @extends decorator")
+            obj._init_ext_bus(self.lib_handle)
+        elif isinstance(obj, Process):
             self.funs.append(obj)
         else:
             raise TypeError("Only instances deriving from Bus or Function can "
                             "be added to the network")
 
-    def wire(self, *args, **kwargs) -> None:
-        raise UnimplementedMethodException(
-            "All Network subclasses must implement a wire method")
+
+    @abstractmethod
+    def wire(self, *args, **kwargs):
+        pass
 
     def _set_opts(self, opts):
         if opts.trace:
+            if self.puppeteer:
+                raise Exception("Genertaing traces is handeled by libsme")
             self.tracing = True
             if isinstance(opts.trace, str):
                 self.trace_file = opts.trace
@@ -299,9 +300,13 @@ class Network:
     def clock(self, cycles: int) -> None:
         while cycles > 0:
             for bus in self.busses:
-                bus.clock(tracing=self.tracing)
+                bus._clock(tracing=self.tracing)
+            if self.puppeteer:
+                self.lib_handle.propagate()
             for fun in self.funs:
-                fun.clock()
+                fun._clock()
+            if self.puppeteer:
+                self.lib_handle.tick()
 
             cycles -= 1
 
@@ -324,6 +329,8 @@ class Network:
 
 
 class SME:
+    """Class used for initializing and running SME networks."""
+
     def __init__(self):
         self._network = None
         self.opts = None
@@ -352,16 +359,19 @@ class SME:
 
     @property
     def network(self):
+        """Return the top-level network."""
         return self._network
 
     @network.setter
     def network(self, network):
+        """Set the top-level network."""
         if not isinstance(network, Network):
             raise TypeError("network must be an instance of the Network class")
         network._set_opts(self.opts)
         self._network = network
-        network.init()
+        network._init()
 
     @property
     def remaining_options(self):
+        """Get non-SME options passed to the command line."""
         return self.unparsed_opts

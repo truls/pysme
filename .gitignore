@@ -1,3 +1,5 @@
 build/
 __pycache__
-*.pyc
+*.pyca
+sme/_libsme_ffi.py
+.ropeproject/
