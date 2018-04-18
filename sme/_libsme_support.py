@@ -10,7 +10,10 @@ import sys
 
 from ._libsme_ffi import ffi
 from ._bus import _BaseChannel
+from ._exceptions import SMEException
 
+class _LibSmeException(Exception):
+    pass
 
 class _LibSme:
 
@@ -66,13 +69,20 @@ class _LibSme:
         f(self.ctx)
         if self.sme.sme_has_failed(self.ctx):
             err = self.ffi.string(self.sme.sme_get_error_buffer(self.ctx))
-            raise Exception(str(err, 'utf-8'))
+            raise _LibSmeException(str(err, 'utf-8'))
 
     def propagate(self):
         self._check_err(self.sme.sme_propagate)
 
     def tick(self):
         self._check_err(self.sme.sme_tick)
+
+    def finalize(self):
+        self._check_err(self.sme.sme_finalize)
+
+    def gen_code(self, f):
+        s = self.ffi.new("char[]", bytes(f, 'utf-8'))
+        self._check_err(lambda x: self.sme.sme_gen_code(x, s))
 
     def __del__(self):
         # Only call free if library was actually instantiated
@@ -82,8 +92,7 @@ class _LibSme:
 
 class _ExtChannel(_BaseChannel):
 
-    def __init__(self, *, name, chan_ref, chan_type, library_handle,
-                 ffi_ref):
+    def __init__(self, *, name, chan_ref, chan_type, library_handle, ffi_ref):
         self._name = name
         self.chan_type = chan_type
         self.sme = library_handle
@@ -124,7 +133,7 @@ class _ExtChannel(_BaseChannel):
         elif self.chan_type == self.sme.SME_DOUBLE:
             return self.read_ptr.f64
         else:
-            raise Exception("Unknown value type. There's a bug somewhere")
+            raise _LibSmeException("Unknown value type. There's a bug somewhere")
 
     @value.setter
     def value(self, val):
@@ -139,9 +148,10 @@ class _ExtChannel(_BaseChannel):
         elif self.chan_type == self.sme.SME_DOUBLE:
             self.write_ptr.f64 = val
         else:
-            raise Exception("Unknown value type. There's a bug somewhere")
+            raise _LibSmeException("Unknown value type."
+                                   " There's a bug somewhere")
 
     def propagate(self):
-        raise Exception("Propagation of external buses"
-                        " must be handled by calling the"
-                        " sme_propagate() function of libsme")
+        raise SMEException("Propagation of external buses"
+                           " must be handled by calling the"
+                           " sme_propagate() function of libsme")

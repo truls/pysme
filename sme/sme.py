@@ -310,6 +310,10 @@ class Network(ABC):
 
             cycles -= 1
 
+        if self.puppeteer:
+            self.lib_handle.finalize()
+            self.lib_handle.gen_code("output")
+
         if self.tracing:
             # TODO: verify that file is valid and can be opened before getting
             # to this point.
