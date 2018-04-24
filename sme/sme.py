@@ -211,8 +211,12 @@ class SimulationProcess(Process):
     pass
 
 
-def extends(file_name, options=""):
+def extends(file_name, options=[]):
     """Extend a network with definitions from an SMEIL program."""
+
+    if not isinstance(options, list):
+        raise TypeError("options options parameter must be a list")
+
     def f(original_class):
         # From: https://stackoverflow.com/a/682242/9175124
         orig_init = original_class.__init__

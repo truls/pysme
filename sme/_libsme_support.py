@@ -40,7 +40,15 @@ class _LibSme:
         self.ffi = ffi
 
         file_arg = ffi.new("char[]", bytes(sme_file, 'utf-8'))
-        self._check_err(lambda x: sme.sme_open_file(x, file_arg))
+        if options is None:
+            argc = 0
+            argv = ffi.NULL
+        else:
+            argc = len(options)
+            argvl = list(map(lambda x: ffi.new("char[]", bytes(x, 'utf-8')),
+                                                options))
+            argv = ffi.new("char*[]", argvl)
+        self._check_err(lambda x: sme.sme_open_file(x, file_arg, argc, argv))
         #sme.sme_set_options(ctx, options)
 
         bm = sme.sme_get_busmap(ctx)

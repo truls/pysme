@@ -22,7 +22,9 @@ typedef enum Type {
 typedef struct SMEInt {
   int len;
   int alloc_size;
-  bool negative;
+  // FIXME: This should really be a bool, but chs2hs guesses them to be the
+  // wrong length (I think) of 4 instead of 1 byte.
+  int negative;
   char* num;
 } SMEInt;
 
@@ -61,9 +63,12 @@ typedef struct BusMap {
 **/
 SmeCtx* sme_init();
 
-bool sme_open_file(SmeCtx* ctx, const char* file);
+/**
+   Loads an SMEIL file, while applying the supplied arguments to libsme.
+**/
+bool sme_open_file(SmeCtx* ctx, const char* file, int argv, char** argc);
 
-void sme_set_options(SmeCtx* ctx, const char* options);
+//void sme_set_options(SmeCtx* ctx, const char* options);
 
 void sme_set_print_errors(SmeCtx* ctx, const char* file);
 
@@ -113,6 +118,7 @@ Value* sme_get_read_val(SmeCtx* ctx, const char* bus, const char* chan);
    their buses
 **/
 bool sme_tick(SmeCtx* ctx);
+
 
 bool sme_finalize(SmeCtx* ctx);
 
