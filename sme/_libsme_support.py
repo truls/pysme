@@ -4,9 +4,9 @@ libsme FFI interface.
 Contains code for interfacing with libsme through the FFI and provides a
 channel abstraction for use within buses.
 """
-from ctypes.util import find_library
 from os.path import isfile, dirname, join
 import sys
+import os
 
 from ._libsme_ffi import ffi
 from ._bus import _BaseChannel
@@ -21,19 +21,17 @@ class _LibSme:
         self.sme = None
 
         sme_file = join(dirname(sys.argv[0]), sme_file)
-        print("checkinf file", sme_file)
-        print(sys.argv[0])
         if not isfile(sme_file):
             raise FileNotFoundError("File not found " + sme_file)
-        #lib = find_library("libsme")
-        lib = "/home/truls/uni/thesis/libsme/lib/libsme.so"
-        if lib is None:
+        try:
+            lib = os.environ["LIBSME_LIB"]
+            sme = ffi.dlopen(lib)
+        except (KeyError, OSError):
             raise FileNotFoundError("Couldn't locate the libsme library."
                                     " Please make sure that libsme.so"
                                     " and its dependencies are found in"
-                                    " a folder listed in your"
-                                    " LD_LIBRARY_PATH.")
-        sme = ffi.dlopen(lib)
+                                    " the folder set in the LIBSME_LIB"
+                                    " environment variable.")
         ctx = sme.sme_init()
         self.ctx = ctx
         self.sme = sme
@@ -49,7 +47,6 @@ class _LibSme:
                                                 options))
             argv = ffi.new("char*[]", argvl)
         self._check_err(lambda x: sme.sme_open_file(x, file_arg, argc, argv))
-        #sme.sme_set_options(ctx, options)
 
         bm = sme.sme_get_busmap(ctx)
         bus_map = {}
@@ -58,7 +55,6 @@ class _LibSme:
             chan_name = str(ffi.string(bm.chans[i].chan_name), 'utf-8')
             if bus_name not in bus_map:
                 bus_map[bus_name] = {}
-                print(bus_name)
 
             bus_map[bus_name][chan_name] =\
                 _ExtChannel(name=chan_name,
@@ -109,11 +105,12 @@ class _ExtChannel(_BaseChannel):
         self.ffi = ffi_ref
 
     def _to_sme_int(self, signed, val):
+        # Whatever val is, it must be cast-able to an integer
+        val = int(val)
         # Number of bytes needed to represent val
         blen = (val.bit_length() + 7) // 8
         self.sme.sme_integer_resize(self.write_ptr.integer, blen)
         buf = self.ffi.buffer(self.write_ptr.integer.num, blen)
-        #print("Wrote {} to chan".format(val))
         buf[:] = abs(val).to_bytes(blen, 'little')
         # Set sign flag if value was negative
         self.write_ptr.integer.negative = val < 0 and signed
@@ -121,12 +118,15 @@ class _ExtChannel(_BaseChannel):
     def _from_sme_int(self, signed):
         buf = self.ffi.buffer(self.read_ptr.integer.num,
                               self.read_ptr.integer.len)
-        # print(self.read_ptr.integer.len, len(buf), str(buf))
         val = int.from_bytes(buf, 'little')
         if self.read_ptr.integer.negative and signed:
             return -val
         else:
             return val
+
+    def _bad_val_type(self):
+        raise _LibSmeException("Unknown value type."
+                               " There's a bug somewhere")
 
     @property
     def value(self):
@@ -141,7 +141,7 @@ class _ExtChannel(_BaseChannel):
         elif self.chan_type == self.sme.SME_DOUBLE:
             return self.read_ptr.f64
         else:
-            raise _LibSmeException("Unknown value type. There's a bug somewhere")
+            self._bad_val_type()
 
     @value.setter
     def value(self, val):
@@ -156,8 +156,7 @@ class _ExtChannel(_BaseChannel):
         elif self.chan_type == self.sme.SME_DOUBLE:
             self.write_ptr.f64 = val
         else:
-            raise _LibSmeException("Unknown value type."
-                                   " There's a bug somewhere")
+            self._bad_val_type()
 
     def propagate(self):
         raise SMEException("Propagation of external buses"

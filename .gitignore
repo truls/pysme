@@ -3,3 +3,7 @@ __pycache__
 *.pyca
 sme/_libsme_ffi.py
 .ropeproject/
+MANIFEST
+*.egg-info/
+dist/
+libsme_ffiinclude.h
