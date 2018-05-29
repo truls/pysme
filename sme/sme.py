@@ -238,7 +238,6 @@ class Network(ABC):
 
     def __init__(self, name, *args, **kwargs):
         self.name = name
-        #print("Name was ", name)
         self.funs = []
         self.busses = []
         self.externals = []
@@ -253,7 +252,6 @@ class Network(ABC):
         self.graph = False
         self.graph_file = "graph-" + time.ctime().replace(" ", "-") + ".dot"
 
-        #print("__init__:", args, kwargs)
         self.deferred_init = lambda: self.wire(*args, **kwargs)
 
     def _init(self):

@@ -4,15 +4,7 @@ from distutils.ccompiler import new_compiler
 import setuptools.command.build_py
 
 
-# class BuildPyCommand(setuptools.command.build_py.build_py):
-#     """Custom build command."""
-
-#     def run(self):
-#         print("Hello")
-#         setuptools.command.build_py.build_py.run(self)
-
 setup(
-    #cmdclass={'build_py', BuildPyCommand},
     name='PySME',
     version='0.2',
     packages=['sme',],
