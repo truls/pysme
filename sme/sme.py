@@ -217,20 +217,19 @@ def extends(file_name, options=[]):
     if not isinstance(options, list):
         raise TypeError("options options parameter must be a list")
 
-    def f(original_class):
-        # From: https://stackoverflow.com/a/682242/9175124
-        orig_init = original_class.__init__
+    def f(c):
+        # Based on: https://stackoverflow.com/a/682242/9175124
+        orig_init = c.__init__
         # make copy of original __init__, so we can call it without recursion
 
-        def __init__(self, id, *args, **kws):
-            self.__id = id
+        def __init__(self, *args, **kws):
             self.puppeteer = True
             self.lib_handle = _LibSme(file_name, options)
 
             orig_init(self, *args, **kws)
 
-        original_class.__init__ = __init__
-        return original_class
+        c.__init__ = __init__
+        return c
     return f
 
 
