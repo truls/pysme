@@ -102,6 +102,7 @@ class _ExtChannel(_BaseChannel):
         self.sme = library_handle
         self.read_ptr = chan_ref.read_ptr.value
         self.write_ptr = chan_ref.write_ptr.value
+        self.write_value = chan_ref.write_ptr
         self.ffi = ffi_ref
 
     def _to_sme_int(self, signed, val):
@@ -145,6 +146,7 @@ class _ExtChannel(_BaseChannel):
 
     @value.setter
     def value(self, val):
+        self.write_value.undef = 0;
         if self.chan_type == self.sme.SME_INT:
             self._to_sme_int(True, val)
         elif self.chan_type == self.sme.SME_UINT:
